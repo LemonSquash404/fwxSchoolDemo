@@ -1,10 +1,10 @@
 server:
-  port: 8080
+  port: 8082
 
-#  配置nacos
+
 spring:
   application:
-    name: fwx-student
+    name: fwx-teaching-class
   cloud:
     nacos:
       discovery:
@@ -12,14 +12,8 @@ spring:
         namespace: fc4f116f-c861-417f-8d2d-febcad2f35ef
       config:
         server-addr: http://localhost:8848
-#  springcloud 2021版本之后都要使用这种方式导入nacos配置
   config:
     import: nacos:application.yml
-    #  或这种
-#  spring.cloud.nacos.config.import-check.enabled : false
-
-
-
 
   # 数据库配置
   datasource:
@@ -27,8 +21,6 @@ spring:
     url: jdbc:mysql://localhost:3306/fwx_student_demo?serverTimeZone=GMT%2b8
     username: root
     password: 123456
-
-
 
 
   mvc:
@@ -40,13 +32,3 @@ spring:
       port: 6379
       database: 0
       password:
-
-#设置mybatis逻辑删除
-mybatis-plus:
-  global-config:
-    db-config:
-      logic-delete-value: 1 #逻辑已删除值（默认为1）
-      logic-not-delete-value: 0 #逻辑已删除值（默认为0）
-      logic-delete-field: delFlag
-
-

@@ -1,11 +1,36 @@
+server:
+  port: 8081
+
+#  配置nacos
 spring:
   application:
-    name: fwx-student
+    name: fwx-teacher
+  cloud:
+    nacos:
+      discovery:
+        server-addr: http://localhost:8848
+        namespace: fc4f116f-c861-417f-8d2d-febcad2f35ef
+      config:
+        server-addr: http://localhost:8848
+#  springcloud 2021版本之后都要使用这种方式导入nacos配置
+  config:
+    import: nacos:application.yml
+    #  或这种
+#  spring.cloud.nacos.config.import-check.enabled : false
+
+
+
+
+  # 数据库配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://localhost:3306/test?serverTimeZone=GMT%2b8
+    url: jdbc:mysql://localhost:3306/fwx_student_demo?serverTimeZone=GMT%2b8
     username: root
     password: 123456
+
+
+
+
   mvc:
     pathmatch:
       matching-strategy: ant_path_matcher
@@ -15,6 +40,4 @@ spring:
       port: 6379
       database: 0
       password:
-server:
-  port: 8081
 

@@ -1,5 +1,6 @@
 package com.example.student.service.serviceImpl;
 
+import base.ActionResult;
 import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
@@ -7,17 +8,23 @@ import com.baomidou.mybatisplus.core.toolkit.ObjectUtils;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
-import com.example.student.Mapper.StudentMapper;
+import com.example.student.api.TeachingClassApi;
+import com.example.student.entity.StudentClassManager;
+import com.example.student.entity.Vo.TeachingClassVo;
+import com.example.student.service.mapper.StudentClassManagerMapper;
+import com.example.student.service.mapper.StudentMapper;
 import com.example.student.entity.Student;
-import com.example.student.entity.StudentSelectParam;
-import com.example.student.entity.StudentUpdateParam;
-import com.example.student.service.ServerService;
+import com.example.student.entity.Vo.StudentSelectParam;
+import com.example.student.entity.Vo.StudentUpdateVo;
+import com.example.student.service.StudentService;
+import io.swagger.v3.core.util.Json;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.Cursor;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -26,7 +33,7 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Service
-public class ServerServiceImpl extends ServiceImpl<StudentMapper,Student> implements ServerService {
+public class StudentServiceImpl extends ServiceImpl<StudentMapper,Student> implements StudentService {
 
     @Autowired
     StudentMapper studentMapper;
@@ -34,9 +41,18 @@ public class ServerServiceImpl extends ServiceImpl<StudentMapper,Student> implem
     @Autowired
     private RedisTemplate<String,Object> redisTemplate;
 
+    @Autowired
+    TeachingClassApi teachingClassApi;
+
+    @Autowired
+    StudentClassManagerMapper studentClassManagerMapper;
+
+
     @Override
-    public List<Student> see1() {
-        List<Student> students = studentMapper.selectStudent();
+    public List<Student> selectAll() {
+        QueryWrapper<Student> queryWrapper = new QueryWrapper<>();
+        queryWrapper.lambda().orderByDesc(Student::getCreatTime);
+        List<Student> students = studentMapper.selectList(queryWrapper);
         return students;
     }
 
@@ -94,7 +110,9 @@ public class ServerServiceImpl extends ServiceImpl<StudentMapper,Student> implem
                 return students;
             }
         }
-        List<Student> students = studentMapper.selectStudent();
+        QueryWrapper<Student> queryWrapper = new QueryWrapper<>();
+        queryWrapper.lambda().orderByDesc(Student::getCreatTime);
+        List<Student> students = studentMapper.selectList(queryWrapper);
         //将查询信息放入hash结构中
         for (Student student : students) {
             String key = student.getName()+":"+student.getAge()+":"+student.getSex();
@@ -123,7 +141,7 @@ public class ServerServiceImpl extends ServiceImpl<StudentMapper,Student> implem
     }
 
     @Override
-    public String add1(StudentUpdateParam param) {
+    public String add(StudentUpdateVo param) {
         UpdateWrapper<Student> updateWrapper = new UpdateWrapper<>();
         Student student = new Student();
         BeanUtils.copyProperties(param,student);
@@ -139,14 +157,12 @@ public class ServerServiceImpl extends ServiceImpl<StudentMapper,Student> implem
     }
 
     @Override
-    public String updateNameById(StudentUpdateParam student) {
+    public String updateNameById(StudentUpdateVo vo) {
 
-        UpdateWrapper<Student> updateWrapper = new UpdateWrapper<>();
-        updateWrapper.lambda().eq(Student::getId,student.getId())
-                .set(Student::getName,student.getName())
-                .set(Student::getSex,student.getSex())
-                .set(Student::getAge,student.getAge());
-        int update = studentMapper.update(updateWrapper);
+        Student student = new Student();
+        BeanUtils.copyProperties(vo,student);
+        student.setEditTime(new Date());
+        int update = studentMapper.updateById(student);
         if (update>0){
             return "修改成功";
         }else {
@@ -155,12 +171,74 @@ public class ServerServiceImpl extends ServiceImpl<StudentMapper,Student> implem
     }
 
     @Override
-    public String delete1(String id) {
-        boolean flag = studentMapper.delete1(id);
-        if (flag){
-            return "删除成功";
-        }else {
-            return "删除失败";
+    public int delete(String ids) {
+        int success = 0;
+        for (String id : ids.split(",")) {
+            int i = studentMapper.deleteById(id);
+            success +=i ;
         }
+        return success;
+
     }
+
+    @Override
+    public void autoDivideClassesForStudent(Integer grade) {
+        //查询还没有班级的学生
+        List<Student> studentList =   studentMapper.selectNoClassStudentByGrade(grade);
+
+       //查询学生没满的班级 5个为满
+        int fullNum = 5;
+        ActionResult<List<TeachingClassVo>> actionResult = teachingClassApi.selectNotFullTeachingClass(grade, fullNum);
+
+        if (actionResult.getCode().equals(200) && ObjectUtils.isNotEmpty(actionResult.getData())){
+
+            //按顺序分配班级
+          List<TeachingClassVo> classVoList = actionResult.getData();
+
+
+          List<StudentClassManager> managerList = new ArrayList();
+
+            for (Student student : studentList) {
+
+                StudentClassManager manager = new StudentClassManager();
+                for (TeachingClassVo classVo : classVoList) {
+                    int stuNum = classVo.getClassStuNum();
+                    if (stuNum<5){
+                        manager.setStudentId(student.getId());
+                        manager.setClassId(classVo.getId());
+                        manager.setCreatTime(new Date());
+                        classVo.setClassStuNum(stuNum + 1);;
+                    }
+                }
+                managerList.add(manager);
+            }
+
+            for (StudentClassManager studentClassManager : managerList) {
+                studentClassManagerMapper.insert(studentClassManager);
+            }
+        }else {
+            throw new RuntimeException("获取未满班级失败");
+        }
+
+
+
+    }
+
+    public void divideClassesForStudent(Integer studentId,Integer classId){
+
+        UpdateWrapper<StudentClassManager> updateWrapper = new UpdateWrapper<>();
+        updateWrapper.lambda()
+                        .eq(StudentClassManager::getStudentId,studentId)
+                        .set(StudentClassManager::getDelTime,new Date());
+        //删除原有分班
+        studentClassManagerMapper.delete(updateWrapper);
+        //建立新分班
+        StudentClassManager studentClassManager = new StudentClassManager();
+        studentClassManager.setStudentId(studentId);
+        studentClassManager.setClassId(classId);
+        studentClassManager.setCreatTime(new Date());
+        studentClassManagerMapper.insert(studentClassManager);
+
+    }
+
 }
